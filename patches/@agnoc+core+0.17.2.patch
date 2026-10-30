@@ -1,0 +1,158 @@
+diff --git a/node_modules/@agnoc/core/lib/emitters/robot.emitter.js b/node_modules/@agnoc/core/lib/emitters/robot.emitter.js
+index c9aec7c..1a8bcd3 100644
+--- a/node_modules/@agnoc/core/lib/emitters/robot.emitter.js
++++ b/node_modules/@agnoc/core/lib/emitters/robot.emitter.js
+@@ -51,7 +51,7 @@ exports.MANUAL_MODE = MANUAL_MODE;
+   MANUAL_MODE[MANUAL_MODE["init"] = 10] = "init";
+ })(MANUAL_MODE || (exports.MANUAL_MODE = MANUAL_MODE = {}));
+ const MODE_CHANGE_TIMEOUT = 5000;
+-const RECV_TIMEOUT = 5000;
++const RECV_TIMEOUT = 30000;
+ const CONSUMABLE_TYPE_RESET = {
+   [_deviceConsumable.CONSUMABLE_TYPE.MAIN_BRUSH]: 1,
+   [_deviceConsumable.CONSUMABLE_TYPE.SIDE_BRUSH]: 2,
+@@ -118,6 +118,9 @@ let Robot = (_class = class Robot extends _tinyTypedEmitter.TypedEmitter {
+         ctrlValue: CTRL_VALUE.START
+       });
+     } else if (((_this$device$mode4 = this.device.mode) === null || _this$device$mode4 === void 0 ? void 0 : _this$device$mode4.value) === _deviceMode2.DeviceMode.VALUE.MOP) {
++      if (this.isDockedWithMapPlans()) {
++        await this.setAllRoomsPlan();
++      }
+       await this.sendRecv('DEVICE_MOP_FLOOR_CLEAN_REQ', 'DEVICE_MOP_FLOOR_CLEAN_RSP', {
+         ctrlValue: CTRL_VALUE.START
+       });
+@@ -130,42 +133,8 @@ let Robot = (_class = class Robot extends _tinyTypedEmitter.TypedEmitter {
+         ctrlValue: CTRL_VALUE.START
+       });
+     } else {
+-      var _this$device$state;
+-      if (this.device.system.supports(_deviceSystem.DEVICE_CAPABILITY.MAP_PLANS) && ((_this$device$state = this.device.state) === null || _this$device$state === void 0 ? void 0 : _this$device$state.value) === _deviceState2.DeviceState.VALUE.DOCKED && this.device.map) {
+-        const {
+-          id,
+-          restrictedZones
+-        } = this.device.map;
+-        await this.sendRecv('DEVICE_MAPID_SET_PLAN_PARAMS_REQ', 'DEVICE_MAPID_SET_PLAN_PARAMS_RSP', {
+-          mapHeadId: id.value,
+-          // FIXME: this will change user map name.
+-          mapName: 'Default',
+-          planId: 2,
+-          // FIXME: this will change user plan name.
+-          planName: 'Default',
+-          roomList: this.device.map.rooms.map(room => ({
+-            roomId: room.id.value,
+-            roomName: room.name,
+-            enable: true
+-          })),
+-          areaInfo: {
+-            mapHeadId: id.value,
+-            planId: 2,
+-            cleanAreaLength: restrictedZones.length,
+-            cleanAreaList: restrictedZones.map(zone => ({
+-              cleanAreaId: zone.id.value,
+-              type: 0,
+-              coordinateLength: zone.coordinates.length,
+-              coordinateList: zone.coordinates.map(({
+-                x,
+-                y
+-              }) => ({
+-                x,
+-                y
+-              }))
+-            }))
+-          }
+-        });
++      if (this.isDockedWithMapPlans()) {
++        await this.setAllRoomsPlan();
+       }
+       await this.sendRecv('DEVICE_AUTO_CLEAN_REQ', 'DEVICE_AUTO_CLEAN_RSP', {
+         ctrlValue: CTRL_VALUE.START,
+@@ -173,6 +142,46 @@ let Robot = (_class = class Robot extends _tinyTypedEmitter.TypedEmitter {
+       });
+     }
+   }
++  isDockedWithMapPlans() {
++    var _this$device$state;
++    return this.device.system.supports(_deviceSystem.DEVICE_CAPABILITY.MAP_PLANS) && ((_this$device$state = this.device.state) === null || _this$device$state === void 0 ? void 0 : _this$device$state.value) === _deviceState2.DeviceState.VALUE.DOCKED && Boolean(this.device.map);
++  }
++  async setAllRoomsPlan() {
++    const {
++      id,
++      restrictedZones
++    } = this.device.map;
++    await this.sendRecv('DEVICE_MAPID_SET_PLAN_PARAMS_REQ', 'DEVICE_MAPID_SET_PLAN_PARAMS_RSP', {
++      mapHeadId: id.value,
++      // FIXME: this will change user map name.
++      mapName: 'Default',
++      planId: 2,
++      // FIXME: this will change user plan name.
++      planName: 'Default',
++      roomList: this.device.map.rooms.map(room => ({
++        roomId: room.id.value,
++        roomName: room.name,
++        enable: true
++      })),
++      areaInfo: {
++        mapHeadId: id.value,
++        planId: 2,
++        cleanAreaLength: restrictedZones.length,
++        cleanAreaList: restrictedZones.map(zone => ({
++          cleanAreaId: zone.id.value,
++          type: 0,
++          coordinateLength: zone.coordinates.length,
++          coordinateList: zone.coordinates.map(({
++            x,
++            y
++          }) => ({
++            x,
++            y
++          }))
++        }))
++      }
++    });
++  }
+   async pause() {
+     var _this$device$mode6, _this$device$mode7, _this$device$mode8, _this$device$map2;
+     if (((_this$device$mode6 = this.device.mode) === null || _this$device$mode6 === void 0 ? void 0 : _this$device$mode6.value) === _deviceMode2.DeviceMode.VALUE.ZONE) {
+@@ -199,10 +208,17 @@ let Robot = (_class = class Robot extends _tinyTypedEmitter.TypedEmitter {
+     }
+   }
+   async stop() {
+-    await this.sendRecv('DEVICE_AUTO_CLEAN_REQ', 'DEVICE_AUTO_CLEAN_RSP', {
+-      ctrlValue: CTRL_VALUE.STOP,
+-      cleanType: 2
+-    });
++    var _this$device$mode9;
++    if (((_this$device$mode9 = this.device.mode) === null || _this$device$mode9 === void 0 ? void 0 : _this$device$mode9.value) === _deviceMode2.DeviceMode.VALUE.MOP) {
++      await this.sendRecv('DEVICE_MOP_FLOOR_CLEAN_REQ', 'DEVICE_MOP_FLOOR_CLEAN_RSP', {
++        ctrlValue: CTRL_VALUE.STOP
++      });
++    } else {
++      await this.sendRecv('DEVICE_AUTO_CLEAN_REQ', 'DEVICE_AUTO_CLEAN_RSP', {
++        ctrlValue: CTRL_VALUE.STOP,
++        cleanType: 2
++      });
++    }
+     if (this.device.system.supports(_deviceSystem.DEVICE_CAPABILITY.MAP_PLANS) && this.device.map) {
+       const {
+         id,
+@@ -659,10 +675,16 @@ let Robot = (_class = class Robot extends _tinyTypedEmitter.TypedEmitter {
+     await this.sendRecv('DEVICE_MAPID_GET_GLOBAL_INFO_REQ', 'DEVICE_MAPID_GET_GLOBAL_INFO_RSP', {
+       mask: 0x78ff
+     });
+-    await this.sendRecv('DEVICE_AUTO_CLEAN_REQ', 'DEVICE_AUTO_CLEAN_RSP', {
+-      ctrlValue: CTRL_VALUE.START,
+-      cleanType: 2
+-    });
++    if (this.device.hasMopAttached) {
++      await this.sendRecv('DEVICE_MOP_FLOOR_CLEAN_REQ', 'DEVICE_MOP_FLOOR_CLEAN_RSP', {
++        ctrlValue: CTRL_VALUE.START
++      });
++    } else {
++      await this.sendRecv('DEVICE_AUTO_CLEAN_REQ', 'DEVICE_AUTO_CLEAN_RSP', {
++        ctrlValue: CTRL_VALUE.START,
++        cleanType: 2
++      });
++    }
+   }
+   async resetMap() {
+     await this.sendRecv('DEVICE_MAPID_SET_HISTORY_MAP_ENABLE_REQ', 'DEVICE_MAPID_SET_HISTORY_MAP_ENABLE_RSP', {});
