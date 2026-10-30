@@ -16,17 +16,15 @@ USER node:node
 # Working directory
 WORKDIR /usr/src/app
 
-# Force cache invalidation
-ADD https://api.github.com/repos/congatudo/Congatudo/git/refs/heads/master /usr/src/version.json
-
-# Download valetudo
-RUN git clone --depth 1 https://github.com/congatudo/Congatudo --single-branch .
+# Copy sources from the build context
+COPY --chown=node:node . .
 
 # Build environment
 ENV NODE_ENV=production
 ENV PKG_CACHE_PATH=./build_dependencies/pkg
 
-# Install dependencies
+# Install dependencies (applies patches/ via postinstall; no git hooks in the image)
+ENV HUSKY=0
 RUN npm ci --production=false
 
 # Build openapi schema
