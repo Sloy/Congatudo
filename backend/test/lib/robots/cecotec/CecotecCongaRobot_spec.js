@@ -92,4 +92,12 @@ describe("CecotecCongaRobot", function () {
             done();
         });
     });
+
+    describe("getModelDetails", function () {
+        it("Should declare the dust bin, water tank and mop attachments", function () {
+            const conga = newConga();
+
+            conga.getModelDetails().supportedAttachments.should.deepEqual(["dustbin", "watertank", "mop"]);
+        });
+    });
 });

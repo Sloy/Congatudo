@@ -206,6 +206,20 @@ module.exports = class CecotecCongaRobot extends ValetudoRobot {
         return "Conga";
     }
 
+    getModelDetails() {
+        return Object.assign(
+            {},
+            super.getModelDetails(),
+            {
+                supportedAttachments: [
+                    AttachmentStateAttribute.TYPE.DUSTBIN,
+                    AttachmentStateAttribute.TYPE.WATERTANK,
+                    AttachmentStateAttribute.TYPE.MOP,
+                ]
+            }
+        );
+    }
+
     async shutdown() {
         await this.server.close();
     }
