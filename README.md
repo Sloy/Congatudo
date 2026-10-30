@@ -3,6 +3,100 @@
     <p align="center"><h2>Free your vacuum from the cloud</h2></p>
 </div>
 
+## What this fork changes
+
+This is a fork of [Congatudo `2024.04`](https://github.com/congatudo/Congatudo/releases/tag/2024.04)
+that adds **mopping of selected rooms** and **tank sensors** for Conga robots with a combined
+water-and-dirt tank. Everything else is upstream `2024.04`. Verified on a Conga 5490
+(`device_type` 23, firmware S4.2.2).
+
+Releases are tagged `2024.04-mop.N`. A Home Assistant add-on that runs this fork is at
+[Sloy/congatudo-add-on](https://github.com/Sloy/congatudo-add-on). The image is
+`ghcr.io/sloy/congatudo:homeassistant-amd64-<version>` (amd64 only), built by
+`.github/workflows/fork_build_docker.yml`.
+
+### 1. Room cleaning never mopped
+
+**Problem.** With the water tank inserted, a full clean mopped but a room (segment) clean only
+vacuumed: the water pump never ran. The official Conga app mops single rooms fine.
+
+**Cause.** `@agnoc/core` `cleanRooms()` sends the room plan and then always the vacuum start
+(`DEVICE_AUTO_CLEAN_REQ`). The robot's own log showed what the official app sends for a single-room
+mop: the same room plan, then the mop start (`DEVICE_MOP_FLOOR_CLEAN_REQ`). The robot then mops only
+the rooms in the plan.
+
+**Fix.** When the tank is attached, `cleanRooms()` ends with `DEVICE_MOP_FLOOR_CLEAN_REQ` (START).
+Without the tank nothing changes.
+
+### 2. A full mop after a room mop only covered the last rooms
+
+**Problem / cause.** The mop branch of `start()` sends the mop start without resetting the room
+plan, so the robot reuses the last plan. After mopping one room, "start" would mop that room again
+instead of the whole house. The vacuum branch already resets the plan.
+
+**Fix.** When docked, the mop branch first sends the all-rooms plan, like the vacuum branch.
+
+### 3. Stop did nothing in mop mode
+
+**Problem / cause.** `stop()` always sent the vacuum stop, which the robot ignores while mopping; the
+call timed out. **Fix.** In mop mode it sends `DEVICE_MOP_FLOOR_CLEAN_REQ` (STOP), as in upstream
+[agnoc #70](https://github.com/congatudo/agnoc/pull/70). The reply timeout is raised from 5 s to 30 s.
+
+Fixes 1-3 are a [`patch-package`](https://github.com/ds300/patch-package) patch to
+`@agnoc/core@0.17.2` in `patches/`, applied by `npm ci` (`postinstall`). Tests:
+`backend/test/lib/robots/cecotec/AgnocMopPatch_spec.js`.
+
+### 4. Which tank is inserted was never published
+
+**Problem.** The robot reports in every status update whether the dust bin or the water tank is
+inserted, and Congatudo stores it (`AttachmentStateAttribute`, visible in
+`GET /api/v2/robot/state/attributes`). It never reached MQTT or Home Assistant.
+
+**Cause.** The MQTT layer only publishes the attachments listed in the robot's
+`getModelDetails().supportedAttachments`, and the Cecotec driver listed none.
+
+**Fix.** `CecotecCongaRobot.getModelDetails()` declares `dustbin`, `watertank` and `mop`.
+
+#### Using the new sensors
+
+MQTT (Homie), retained, payload `true` / `false`:
+
+```
+<prefix>/<identifier>/AttachmentStateAttribute/dustbin
+<prefix>/<identifier>/AttachmentStateAttribute/watertank
+<prefix>/<identifier>/AttachmentStateAttribute/mop
+```
+
+With Home Assistant autodiscovery enabled, each becomes a diagnostic `binary_sensor` on the robot's
+device, named "Dust bin attachment", "Water tank attachment" and "Mop attachment". The entity ids
+derive from the device name, e.g. `binary_sensor.<device>_water_tank_attachment`. Home Assistant may
+prefix them with the device's area; rename them if you want them next to the robot's other entities.
+
+| Tank inserted | `dustbin` | `watertank` | `mop` |
+|---|---|---|---|
+| Dust bin | on | off | off |
+| Water + dirt tank | off | on | on |
+
+- `watertank` and `mop` always change together on these robots. Use **`watertank`** as the single
+  "set up for mopping" signal.
+- The state changes within about a second of swapping the tank, while docked or not.
+- What the robot does with the tank in: room and full cleans mop (fixes 1-2), and water flow follows
+  the existing water control (`select` "Water", presets off/low/medium/high).
+
+Typical uses: show a water or bin icon on the robot's dashboard card, skip rooms that must not get
+wet (carpets) while `watertank` is on, remind someone to empty the tank after a mop run, or block a
+scheduled vacuum run while the mopping tank is in.
+
+### Not changed / known behaviour
+
+- Zone cleans still vacuum, even with the tank in.
+- There is no vacuum/mop selector: the mode follows the inserted tank, as on the robot itself.
+- After a **stop** of a mop run, the robot drops its live map. The next **home** command reloads it,
+  and for a few seconds the published map is empty or has a placeholder dock position. Tools that
+  watch the map should ignore such maps. Sending **home** straight from mopping does not do this.
+
+---
+
 Congatudo is a cloud replacement for vacuum robots enabling local-only operation. It is not a custom firmware.
 That means that it cannot change anything about how the robot operates.
 
